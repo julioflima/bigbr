@@ -1,0 +1,7 @@
+{
+  "name": "bigbr",
+  "version": "1.0.0",
+  "dependencies": {
+    "campeonato-brasileiro-api": "1.0.10"
+  }
+}

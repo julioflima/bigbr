@@ -1,0 +1,201 @@
+classdef OLS
+%   Produced by Julio Lima (Universidade Federal do Ceará).
+%   Odinary Least Squares Classificators.
+
+    properties
+
+    end
+    methods(Static)
+        
+        function classify = OLS()
+        end
+        
+        function classificator = classify(base, supervisedClass)
+            %Applying the Multiple Regression Method to obtain classificator matrix A.
+            classificator = ((base'*base)^(-1))*(base' * supervisedClass);
+        end
+        
+        
+        function [data] = gameTest(dataIn,s,timesTest, show)
+            %Create GetBr object.
+            getBr = GetBr();
+            dayRequired = day(datetime('now'),'dayofyear');
+            
+            param = OLS.getParameters(dataIn, timesTest, show);
+            disp(param);
+            
+            tableNames = getBr.getTable(s,dayRequired);
+            tablePoints = cell2mat(tableNames(2:13));
+            tableNames = tableNames{1};
+            
+            data.awards = param.awards;
+            data.parameters = param.parameters;
+            data.classificator = param.classificator;
+            data.points = [,];
+            data.result = [,];
+            data.game = {};
+            index = 0;
+            
+            for j = 1:38
+                turn = getBr.getTurns(s,j);
+                for k = 1:10
+                    if(isnan(turn{2}(k)) || isnan(turn{4}(k)))
+                        %Get result.
+                        index = size(data.points,1) + 1;
+                        %Get points of result.
+                        indexP = find(contains(tableNames,turn{1}(k)));
+                        indexG = contains(tableNames,turn{3}(k));
+                        pointsP = tablePoints(indexP,:);
+                        pointsG = tablePoints(indexG,:);
+                        data.points(index,:) = pointsP - pointsG;
+                        data.game(index,:) = [turn{1}(k) turn{3}(k)];
+                    end
+                end
+            end
+            %Remove if all paremeters are equals.
+            data.points = GetBr.removeEquals(data.points);
+            %Filter points from parameters
+            data.points = data.points(:,param.parameters);
+            %Normalize by David Coelho.
+            OPTION.norm = 3;
+            DATA.input = data.points';
+            normalized = normalize(DATA,OPTION);
+            data.points = normalized.input';
+            %Adjust for Polynomial
+            data.points = [ones(size(data.points,1),1) data.points];
+            %Prevision result.
+            data.result = data.points * data.classificator;
+            for i = 1:index
+                pWins = data.result(i,1);
+                aTie = data.result(i,2);
+                gWins = data.result(i,3);
+                %The bigger one correspond to the result, if bigger put value 1.
+                if (pWins > aTie && pWins > gWins)
+                    fResult = [1 0 0];
+                else
+                    if (aTie > pWins && aTie > gWins)
+                        fResult = [0 1 0];
+                    else    
+                        if (gWins > aTie && gWins > pWins)
+                            fResult = [0 0 1];
+                        end
+                    end
+                end
+                minor = data.result(i,1);
+                for j = 2:3
+                    if(data.result(i,j) < minor)
+                        minor = data.result(i,j);
+                    end
+                end
+                sum = (pWins + aTie + gWins-3*minor)/100;
+                data.prevision(i,:) = {char(data.game(i,1)) char(data.game(i,2)) fResult(1)  fResult(2)  fResult(3) (pWins-minor)/sum (aTie-minor)/sum (gWins-minor)/sum};
+            end
+            getBr.store("prevision/serie" + upper(s),data.prevision,dayRequired);
+        end        
+                
+        function [data] = getParameters(dataIn,timesTest,show)
+            %At least 1 turn before.
+            heightDataIn = size(dataIn.points,1);
+            %Initialize returns.
+            data.awards = 0;
+            data.window = 0;
+            data.parameters = [];
+            for pre = 1:heightDataIn
+                if(show ~= "hide")
+                    disp("At: "  + pre);
+                    pause(.001)
+                end
+                testTimes = 0;
+                dataOn.points = dataIn.points(pre:heightDataIn,:);
+                dataOn.result = dataIn.result(pre:heightDataIn,:);
+                while(testTimes<timesTest)
+                    result = OLS.rndParameters(dataOn);
+                    if(result.awards>data.awards)
+                        data.window = pre;
+                        data.awards = result.awards;
+                        data.parameters = result.parameters;
+                        if(show ~= "hide")
+                            disp("Starts: "  + data.window);
+                            disp("Awards : " + data.awards);
+                            disp(data.parameters);
+                            pause(.01)
+                        end
+                    end
+                    testTimes = testTimes + 1;
+                end
+            end   
+            %Optmize OLS
+            data.points = dataIn.points(:,data.parameters);
+            data.points = data.points(data.window:end,:);
+            data.result = dataIn.result(data.window:end,:);
+            %Adjust for Polynomial
+            data.points = [ones(size(data.points,1),1) data.points];
+            %Classify
+            data.classificator = OLS.classify(data.points,data.result);            
+        end
+
+        function [data] = rndParameters(data)
+            weightDatas = size(data.points,2);
+            points = [];
+            preR = randi([1 weightDatas],1,1);
+            posR = randi([preR weightDatas],1,1);
+            random = randi([preR posR],1,weightDatas);
+            b = unique(random.','rows').';
+            data.points(:,b) = data.points(:,b);
+            %Test with Ordinary Least Squares
+            data.awards = OLS.leave_one_out(data.points,data.result);
+            data.parameters = b;
+        end
+        
+        function classificationTax = leave_one_out(base, supervisedClass)    
+            %Adjust for Polynomial
+            base = [ones(size(base,1),1) base];
+            %Take the number of samples of base.
+            widghtBase = size(base,1);
+            widghtSupervised = size(supervisedClass,2);
+
+            %Defining match count variable, to count the awards.
+            matchCount = 0;
+
+            %Interact the number of base widht.
+            for x=1:widghtBase
+                %Leaving out the sample of base.
+                trainingBase=base;
+                trainingBase(x,:) = [];
+                %Leaving out the sample of result.
+                resultTraining=supervisedClass;
+                resultTraining(x,:) = [];
+
+                %Applying the Multiple Regression Method to obtain classificator matrix A.
+                classificator = OLS.classify(trainingBase, resultTraining);
+
+                %Testing the leaved one.
+                result = base(x,:) * classificator;
+
+                %Create base of results base in test.
+                filteredResult = zeros(1,widghtSupervised);
+
+                %The bigger one correspond to the result, if bigger put value 1.
+                if (result(1) > result(2) && result(1) > result(3))
+                    filteredResult = [1 0 0];
+                else
+                    if (result(2) > result(1) && result(2) > result(3))
+                        filteredResult = [0 1 0];
+                    else    
+                        if (result(3) > result(1) && result(3) > result(2))
+                            filteredResult = [0 0 1];
+                        end
+                    end
+                end
+
+                %If result and test were equals add one to the match count.
+                if (filteredResult == supervisedClass(x,:))
+                    matchCount = matchCount+1; 
+                end
+            end
+
+            %Return the classification tax;
+            classificationTax=100*matchCount/widghtBase; 
+        end
+    end
+end

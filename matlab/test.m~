@@ -1,0 +1,8 @@
+
+samples = 91;
+x = 1:.1:10;
+noise = 0.1*randn(samples,1);
+y = sin(x) + noise';
+
+
+ plot(y);
